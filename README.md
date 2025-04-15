@@ -9,7 +9,7 @@ analyzing pull request contribution patterns.
 
 ```bash
 # Install dependencies
-gem install graphql-client sqlite3
+bundle install
 
 # Set your GitHub token
 export GITHUB_TOKEN=your_github_token_here
