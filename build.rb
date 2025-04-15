@@ -25,11 +25,11 @@ class LotteryFactorTool
       db = Database.new(@database)
       github_client = GitHubClient.new
 
-      data_fetcher = DataFetcher.new(github_client, db)
+      data_fetcher = DataFetcher.new(client: github_client, database: db)
       data_updated = data_fetcher.fetch_and_store_data(@repo_owner, @repo_name, @time_range)
 
       if data_updated
-        html_generator = HtmlGenerator.new(db, @top_display_count)
+        html_generator = HtmlGenerator.new(database: db, top_display_count: @top_display_count)
         html_generator.generate(@repo_owner, @repo_name, @time_range, @output)
       else
         puts 'Failed to update data, HTML not generated.'
@@ -47,10 +47,10 @@ class LotteryFactorTool
   private
 
   def validate_repository
-    if !@repo_owner || !@repo_name
-      puts "Error: Invalid repository format. Use 'username/repo'."
-      exit 1
-    end
+    return unless !@repo_owner || !@repo_name
+
+    puts "Error: Invalid repository format. Use 'username/repo'."
+    exit 1
   end
 end
 
@@ -92,10 +92,6 @@ class GitHubClient
       }
     }
   GRAPHQL
-
-  def initialize
-    # No need to initialize client here anymore
-  end
 
   def fetch_pull_requests(owner, name, cursor = nil)
     response = Client.query(PullRequestsQuery, variables: { owner: owner, name: name, cursor: cursor })
@@ -212,38 +208,46 @@ class Database
 end
 
 # Pull request data fetcher
-class DataFetcher
-  def initialize(client, database)
-    @client = client
-    @db = database
+DataFetcher = Struct.new(:client, :database, keyword_init: true) do
+  def fetch_and_store_data(repo_owner, repo_name, days_range)
+    repository_id = database.get_repository_id(repo_owner, repo_name)
+
+    if data_is_recent_enough?(repository_id, days_range)
+      puts "Database already contains PRs covering the required #{days_range} day range."
+      return true
+    end
+
+    fetch_and_store_pull_requests(repo_owner, repo_name, repository_id, days_range)
   end
 
-  def fetch_and_store_data(repo_owner, repo_name, days_range)
+  private
+
+  def data_is_recent_enough?(repository_id, days_range)
+    oldest_needed_date = Date.today - days_range
+    oldest_pr_date = database.get_oldest_pr_date(repository_id)
+
+    oldest_pr_date && Date.parse(oldest_pr_date) <= oldest_needed_date
+  end
+
+  def fetch_and_store_pull_requests(repo_owner, repo_name, repository_id, days_range)
     cursor = nil
     inserted_count = 0
     oldest_needed_date = Date.today - days_range
 
-    repository_id = @db.get_repository_id(repo_owner, repo_name)
-    oldest_pr_date = @db.get_oldest_pr_date(repository_id)
-
-    if oldest_pr_date && Date.parse(oldest_pr_date) <= oldest_needed_date
-      puts "Database already contains PRs dating back to #{oldest_pr_date}, which covers the required #{days_range} day range."
-      return true
-    end
-
     loop do
       puts "Fetching pull requests (cursor: #{cursor || 'start'})..."
-      prs = @client.fetch_pull_requests(repo_owner, repo_name, cursor)
+      prs = client.fetch_pull_requests(repo_owner, repo_name, cursor)
 
       return false unless prs
 
       pull_requests = prs.edges.map(&:node)
       filtered_prs = pull_requests.select { |pr| Date.parse(pr.merged_at) >= oldest_needed_date }
 
-      count = @db.insert_pull_requests(repository_id, filtered_prs)
+      count = database.insert_pull_requests(repository_id, filtered_prs)
       inserted_count += count
 
       break unless prs.page_info.has_next_page && !filtered_prs.empty?
+
       cursor = prs.page_info.end_cursor
     end
 
@@ -253,36 +257,39 @@ class DataFetcher
 end
 
 # HTML report generator
-class HtmlGenerator
-  def initialize(database, top_display_count = 5)
-    @db = database
-    @top_display_count = top_display_count
+HtmlGenerator = Struct.new(:database, :top_display_count, keyword_init: true) do
+  def initialize(database:, top_display_count: 5)
+    super
   end
 
   def generate(repo_owner, repo_name, time_range, output_filename)
-    contributors = @db.get_contributors(repo_owner, repo_name)
+    contributors = database.get_contributors(repo_owner, repo_name)
 
-    total_prs = contributors.sum { |_, count| count }
-    top_contributors = contributors.take(2)
-    top_contributors_percentage = (top_contributors.sum { |_, count| count }.to_f / total_prs * 100).round
-
-    risk_level = calculate_risk_level(top_contributors_percentage)
-
-    html_output = render_template(
-      contributors: contributors,
-      total_prs: total_prs,
-      top_contributors: top_contributors,
-      top_contributors_percentage: top_contributors_percentage,
-      risk_level: risk_level,
-      time_range: time_range,
-      top_display_count: @top_display_count
-    )
+    report_data = calculate_report_data(contributors, time_range)
+    html_output = render_template(report_data)
 
     File.write(output_filename, html_output)
     puts "HTML file generated: #{output_filename}"
   end
 
   private
+
+  def calculate_report_data(contributors, time_range)
+    total_prs = contributors.sum { |_, count| count }
+    top_contributors = contributors.take(2)
+    top_contributors_percentage = (top_contributors.sum { |_, count| count }.to_f / total_prs * 100).round
+    risk_level = calculate_risk_level(top_contributors_percentage)
+
+    {
+      contributors: contributors,
+      total_prs: total_prs,
+      top_contributors: top_contributors,
+      top_contributors_percentage: top_contributors_percentage,
+      risk_level: risk_level,
+      time_range: time_range,
+      top_display_count: top_display_count
+    }
+  end
 
   def calculate_risk_level(percentage)
     if percentage > 50
@@ -299,12 +306,11 @@ class HtmlGenerator
     if File.exist?(template_path)
       template = File.read(template_path)
       renderer = ERB.new(template)
-      renderer.result(binding)
     else
       # Fallback to inline template if external template is not available
       renderer = ERB.new(inline_template)
-      renderer.result(binding)
     end
+    renderer.result(binding)
   end
 
   def risk_color(level)
@@ -426,7 +432,8 @@ class CommandLineParser
         options[:output] = output
       end
 
-      opts.on('--top-display COUNT', Integer, 'Number of top contributors to display individually (default: 5)') do |count|
+      opts.on('--top-display COUNT', Integer,
+              'Number of top contributors to display individually (default: 5)') do |count|
         options[:top_display_count] = count
       end
     end
