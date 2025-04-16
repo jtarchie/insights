@@ -138,22 +138,6 @@ class Database
         UNIQUE(repository_id, pr_number)
       );
     SQL
-
-    @db.execute <<-SQL
-      CREATE VIEW IF NOT EXISTS top_contributors AS
-      SELECT
-        r.owner || '/' || r.name AS repository,
-        pr.author,
-        COUNT(*) AS pr_count
-      FROM
-        pull_requests pr
-      JOIN
-        repositories r ON pr.repository_id = r.id
-      GROUP BY
-        r.id, pr.author
-      ORDER BY
-        pr_count DESC;
-    SQL
   end
 
   def get_repository_id(owner, name)
