@@ -141,8 +141,7 @@ class Database
   def get_yolo_coders(owner, name, days_range)
     since_date = (Date.today - days_range).strftime('%Y-%m-%d')
 
-    @db.execute(<<-SQL, [owner, name, since_date]).map { |row|
- [row['author'], row['commit_count'], row['commit_shas']] }
+    @db.execute(<<-SQL, [owner, name, since_date]).map { |row| [row['author'], row['commit_count'], row['commit_shas']] }
       SELECT
         mc.author,
         COUNT(*) AS commit_count,
