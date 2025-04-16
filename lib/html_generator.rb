@@ -12,7 +12,7 @@ HtmlGenerator = Struct.new(:database, :top_display_count, keyword_init: true) do
     contributors = database.get_contributors(repo_owner, repo_name)
     yolo_coders = database.get_yolo_coders(repo_owner, repo_name, time_range)
 
-    report_data = calculate_report_data(contributors, yolo_coders, time_range)
+    report_data = calculate_report_data(contributors, yolo_coders, time_range, repo_owner, repo_name)
     html_output = render_template(report_data)
 
     File.write(output_filename, html_output)
@@ -21,7 +21,7 @@ HtmlGenerator = Struct.new(:database, :top_display_count, keyword_init: true) do
 
   private
 
-  def calculate_report_data(contributors, yolo_coders, time_range)
+  def calculate_report_data(contributors, yolo_coders, time_range, repo_owner, repo_name)
     # Calculate lottery factor data
     total_prs = contributors.sum { |_, count| count }
     top_contributors = contributors.take(2)
@@ -46,7 +46,9 @@ HtmlGenerator = Struct.new(:database, :top_display_count, keyword_init: true) do
       top_display_count: top_display_count,
       yolo_coders: yolo_coders,
       total_yolo_commits: total_yolo_commits,
-      yolo_coder_count: yolo_coder_count
+      yolo_coder_count: yolo_coder_count,
+      repo_owner: repo_owner,
+      repo_name: repo_name
     }
   end
 
@@ -137,8 +139,10 @@ HtmlGenerator = Struct.new(:database, :top_display_count, keyword_init: true) do
                 <tr>
                   <td class="py-1">
                     <div class="flex items-center gap-2">
-                      <img src="https://github.com/<%= author %>.png" alt="<%= author %>" class="w-6 h-6 rounded-full">
-                      <span><%= author %></span>
+                      <a href="https://github.com/<%= data[:repo_owner] %>/<%= data[:repo_name] %>/pulls?q=author:<%= author %>" target="_blank" class="flex items-center gap-2">
+                        <img src="https://github.com/<%= author %>.png" alt="<%= author %>" class="w-6 h-6 rounded-full">
+                        <span><%= author %></span>
+                      </a>
                     </div>
                   </td>
                   <td class="py-1 text-right"><%= count %></td>
@@ -185,13 +189,15 @@ HtmlGenerator = Struct.new(:database, :top_display_count, keyword_init: true) do
                 <tr>
                   <td class="py-1">
                     <div class="flex items-center gap-2">
-                      <img src="https://github.com/<%= author %>.png" alt="<%= author %>" class="w-6 h-6 rounded-full">
-                      <span><%= author %></span>
+                      <a href="https://github.com/<%= data[:repo_owner] %>/<%= data[:repo_name] %>/commits?author=<%= author %>" target="_blank" class="flex items-center gap-2">
+                        <img src="https://github.com/<%= author %>.png" alt="<%= author %>" class="w-6 h-6 rounded-full">
+                        <span><%= author %></span>
+                      </a>
                     </div>
                   </td>
                   <td class="py-1 text-center">
                     <% first_sha = shas.split(',').first %>
-                    <a href="#" class="text-blue-500 hover:underline"><%= first_sha[0..6] %></a>
+                    <a href="https://github.com/<%= data[:repo_owner] %>/<%= data[:repo_name] %>/commit/<%= first_sha %>" target="_blank" class="text-blue-500 hover:underline"><%= first_sha[0..6] %></a>
                   </td>
                   <td class="py-1 text-right"><%= count %> commit<%= count > 1 ? 's' : '' %></td>
                 </tr>
@@ -200,7 +206,7 @@ HtmlGenerator = Struct.new(:database, :top_display_count, keyword_init: true) do
           </table>
 
           <p class="mt-4 text-sm text-gray-600 dark:text-gray-400">
-            <a href="#" class="text-blue-500 hover:underline">Learn more</a> about why pull requests are a better way to contribute.
+            <a href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests" target="_blank" class="text-blue-500 hover:underline">Learn more</a> about why pull requests are a better way to contribute.
           </p>
         </div>
       </body>
